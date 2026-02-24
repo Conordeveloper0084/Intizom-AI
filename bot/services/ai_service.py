@@ -4,7 +4,7 @@ import tempfile
 import logging
 from datetime import datetime, timedelta
 from openai import AsyncOpenAI
-from bot.config import OPENAI_API_KEY
+from bot.config import OPENAI_API_KEY, TIMEZONE
 
 logger = logging.getLogger(__name__)
 
@@ -39,50 +39,49 @@ async def transcribe_voice(file_bytes: bytes) -> str:
 
 async def extract_plans_from_text(text: str) -> list[dict]:
     try:
-        now = datetime.now()
+        # O'zbekiston vaqti
+        now = datetime.now(TIMEZONE)
         current_time = now.strftime("%H:%M")
+        current_date = now.strftime("%d.%m.%Y")
+        
+        tomorrow = now + timedelta(days=1)
+        tomorrow_date = tomorrow.strftime("%d.%m.%Y")
 
-        logger.info(f"📝 GPT ga yuborilmoqda: '{text}'")
+        logger.info(f"📝 GPT ga yuborilmoqda: '{text}' | Tashkent: {current_time}")
 
-        system_prompt = """Sen tarjima va reja yordamchisisiz.
+        system_prompt = """Sen reja yordamchisisiz. Faqat o'zbek tilida javob ber."""
 
-QOIDALAR:
-1. Matn QAYSI TILDA bo'lmasin (o'zbek, turk, qozoq, rus, ingliz) - sen DOIM o'zbek tilida javob berasan
-2. Agar matn o'zbek tilida emas bo'lsa - MA'NOSINI tushunib o'zbek tilida reja yoz
-3. JSON ichidagi "title" va "description" FAQAT O'ZBEK TILIDA bo'lishi SHART
-4. Faqat JSON qaytar, boshqa hech narsa yozma"""
+        user_prompt = f"""Hozir: {current_time} (Tashkent)
+Bugun: {current_date}
+Ertaga: {tomorrow_date}
 
-        user_prompt = f"""Hozirgi vaqt: {current_time}
+Matndan rejalarni topib O'ZBEK TILIDA JSON qaytar.
 
-Quyidagi matndan kunlik rejalarni topib, O'ZBEK TILIDA JSON qaytar.
-
-MUHIM: 
-- Matn turk, qozoq, rus yoki boshqa tilda bo'lsa ham - title FAQAT O'ZBEK TILIDA
-- Masalan: "уйқудан турамын" → title: "Uyg'onish" yoki "Erta turish"
-- Masalan: "spor yapacağım" → title: "Sport qilish"
-- Masalan: "read a book" → title: "Kitob o'qish"
-
-Vaqt hisoblash:
-- Aniq vaqt: "9 da" → "09:00"
+VAQT:
+- "17:00 da" → "17:00"
 - "10 minutdan keyin" → "{(now + timedelta(minutes=10)).strftime("%H:%M")}"
-- "30 minutdan so'ng" → "{(now + timedelta(minutes=30)).strftime("%H:%M")}"
+- "yarim soatdan so'ng" → "{(now + timedelta(minutes=30)).strftime("%H:%M")}"
 - Vaqt yo'q → null
 
-JSON format:
+BUGUN/ERTAGA:
+- "ertaga", "sabah" → for_tomorrow: true
+- Boshqa → for_tomorrow: false
+
+JSON:
 {{
   "plans": [
     {{
-      "title": "O'ZBEK TILIDA sarlavha (masalan: Erta turish, Sport qilish, Kitob o'qish)",
+      "title": "O'zbek tilida (Erta turish)",
       "description": null,
       "scheduled_time": "HH:MM yoki null",
-      "score_value": 5
+      "score_value": 5,
+      "for_tomorrow": false
     }}
   ]
 }}
 
 Matn: "{text}"
-
-ESLATMA: Title mutlaqo o'zbek tilida bo'lishi kerak!"""
+"""
 
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -94,9 +93,8 @@ ESLATMA: Title mutlaqo o'zbek tilida bo'lishi kerak!"""
         )
 
         content = response.choices[0].message.content.strip()
-        logger.info(f"✅ GPT javobi: '{content[:300]}'")
+        logger.info(f"✅ GPT: {content[:200]}")
 
-        # JSON tozalash
         if "```" in content:
             parts = content.split("```")
             if len(parts) >= 2:
@@ -113,83 +111,23 @@ ESLATMA: Title mutlaqo o'zbek tilida bo'lishi kerak!"""
         data = json.loads(content)
         plans = data.get("plans", [])
         
-        # Har bir plan title'ini tekshirish - agar kirill harflarda bo'lsa qayta so'rash
+        # Kirill → O'zbek
         for plan in plans:
             title = plan.get("title", "")
-            # Agar kirill harflari bor bo'lsa - bu o'zbek emas
             if any(ord(c) >= 0x0400 and ord(c) <= 0x04FF for c in title):
-                logger.warning(f"⚠️ Title kirill harflarida: '{title}' - qayta tahlil qilamiz")
-                # GPT ga yana bir marta so'raymiz - faqat tarjima uchun
-                translate_response = await client.chat.completions.create(
+                tr_resp = await client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role": "system", "content": "Sen tarjimonsan. Faqat o'zbek tilida javob ber."},
-                        {"role": "user", "content": f"Bu matnni o'zbek tiliga tarjima qil (faqat tarjimani yoz, boshqa hech narsa): '{title}'"}
+                        {"role": "system", "content": "Tarjimon. O'zbek tilida yoz."},
+                        {"role": "user", "content": f"O'zbekchaga: {title}"}
                     ],
                     temperature=0.1,
                 )
-                uzbek_title = translate_response.choices[0].message.content.strip()
-                plan["title"] = uzbek_title
-                logger.info(f"✅ Tarjima: '{title}' → '{uzbek_title}'")
+                plan["title"] = tr_resp.choices[0].message.content.strip()
 
-        logger.info(f"✅ Final rejalar: {plans}")
+        logger.info(f"✅ Final: {plans}")
         return plans
 
-    except json.JSONDecodeError as e:
-        logger.error(f"❌ JSON parse xatosi: {e}")
+    except Exception as e:
+        logger.error(f"❌ GPT xato: {e}")
         return []
-    except Exception as e:
-        logger.error(f"❌ GPT xatosi: {type(e).__name__}: {str(e)}")
-        raise e
-
-
-async def extract_time_only(text: str) -> str | None:
-    """
-    Matndan FAQAT vaqtni chiqaradi.
-    Userga vaqt so'raganda ishlatiladi.
-    """
-    try:
-        now = datetime.now()
-        current_time = now.strftime("%H:%M")
-
-        logger.info(f"🕐 Vaqt tahlili: '{text}'")
-
-        prompt = f"""Hozirgi vaqt: {current_time}
-
-Foydalanuvchi vaqt aytdi. Faqat vaqtni HH:MM formatda chiqar.
-
-MISOLLAR:
-"soat 15 da" → 15:00
-"soat 10:43" → 10:43
-"15:00" → 15:00
-"10 da" → 10:00
-"30 minutdan keyin" → {(now + timedelta(minutes=30)).strftime("%H:%M")}
-"1 soatdan so'ng" → {(now + timedelta(hours=1)).strftime("%H:%M")}
-"yarim soatdan keyin" → {(now + timedelta(minutes=30)).strftime("%H:%M")}
-
-FAQAT HH:MM formatda javob ber (masalan: 15:00), boshqa hech narsa yozma.
-
-Matn: "{text}"
-"""
-
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Sen vaqt aniqlash assistantisan. Faqat HH:MM formatda javob ber."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-        )
-
-        result = response.choices[0].message.content.strip()
-        logger.info(f"✅ Vaqt natija: '{result}'")
-
-        # HH:MM formatni tekshirish
-        if ":" in result and len(result) == 5:
-            return result
-        
-        return None
-
-    except Exception as e:
-        logger.error(f"❌ Vaqt tahlil xatosi: {e}")
-        return None

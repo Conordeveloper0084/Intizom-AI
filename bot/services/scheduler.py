@@ -1,32 +1,21 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import select, and_
-from datetime import datetime, date
+from datetime import datetime
 
 from database.db import AsyncSessionLocal
 from bot.models.plan import Plan, PlanStatus
 from bot.models.user import User
-from bot.config import SUMMARY_HOUR, SUMMARY_MINUTE
+from bot.config import SUMMARY_HOUR, SUMMARY_MINUTE, PENDING_CHECK_HOUR, PENDING_CHECK_MINUTE, TIMEZONE
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone=str(TIMEZONE))
 
 
 async def send_plan_notifications(bot):
-    """Har daqiqada — vaqti kelgan rejalarni eslatadi"""
+    """Har daqiqada — vaqti kelgan rejalarni eslatadi (Tashkent vaqti)"""
     async with AsyncSessionLocal() as session:
-        now = datetime.now().strftime("%H:%M")
-
-        result = await session.execute(
-            select(Plan).where(
-                and_(
-                    Plan.scheduled_time == now,
-                    Plan.status == PlanStatus.pending,
-                    Plan.notified_at == None,
-                    Plan.plan_date == date.today()
-                )
-            )
-        )
-        plans = result.scalars().all()
+        from bot.services.plan_service import get_pending_plans_to_notify
+        plans = await get_pending_plans_to_notify(session)
 
         for plan in plans:
             user_result = await session.execute(
@@ -51,15 +40,17 @@ async def send_plan_notifications(bot):
                     parse_mode="HTML",
                     reply_markup=done_failed_keyboard(plan.id)
                 )
-                plan.notified_at = datetime.utcnow()
+                plan.notified_at = datetime.now(TIMEZONE)
                 await session.commit()
             except Exception:
                 pass
 
 
 async def send_daily_summary(bot):
-    """Har kuni 21:00 da kunlik hisobot"""
+    """Har kuni 21:00 da kunlik hisobot (Tashkent vaqti)"""
     async with AsyncSessionLocal() as session:
+        today = datetime.now(TIMEZONE).date()
+        
         users_result = await session.execute(
             select(User).where(User.is_active == True)
         )
@@ -70,7 +61,7 @@ async def send_daily_summary(bot):
                 select(Plan).where(
                     and_(
                         Plan.user_id == user.id,
-                        Plan.plan_date == date.today()
+                        Plan.plan_date == today
                     )
                 )
             )
@@ -114,14 +105,15 @@ async def send_daily_summary(bot):
 
 
 async def check_pending_plans(bot):
-    """Har kuni 23:00 da pending rejalarni tekshiradi"""
+    """Har kuni 23:00 da pending rejalarni tekshiradi (Tashkent vaqti)"""
     async with AsyncSessionLocal() as session:
-        # Barcha pending rejalarni topish
+        today = datetime.now(TIMEZONE).date()
+        
         result = await session.execute(
             select(Plan).where(
                 and_(
                     Plan.status == PlanStatus.pending,
-                    Plan.plan_date == date.today()
+                    Plan.plan_date == today
                 )
             )
         )
@@ -163,26 +155,26 @@ async def check_pending_plans(bot):
 
 
 def start_scheduler(bot):
-    # Har daqiqa — vaqti kelgan rejalarni eslatish
+    # Har daqiqa — vaqti kelgan rejalar
     scheduler.add_job(
         send_plan_notifications,
-        trigger=CronTrigger(minute="*"),
+        trigger=CronTrigger(minute="*", timezone=str(TIMEZONE)),
         args=[bot],
         id="plan_notifications"
     )
     
-    # Har kuni 21:00 — kunlik summary
+    # 21:00 (Tashkent) — kunlik summary
     scheduler.add_job(
         send_daily_summary,
-        trigger=CronTrigger(hour=SUMMARY_HOUR, minute=SUMMARY_MINUTE),
+        trigger=CronTrigger(hour=SUMMARY_HOUR, minute=SUMMARY_MINUTE, timezone=str(TIMEZONE)),
         args=[bot],
         id="daily_summary"
     )
     
-    # Har kuni 23:00 — pending rejalarni tekshirish
+    # 23:00 (Tashkent) — pending check
     scheduler.add_job(
         check_pending_plans,
-        trigger=CronTrigger(hour=23, minute=0),
+        trigger=CronTrigger(hour=PENDING_CHECK_HOUR, minute=PENDING_CHECK_MINUTE, timezone=str(TIMEZONE)),
         args=[bot],
         id="pending_check"
     )

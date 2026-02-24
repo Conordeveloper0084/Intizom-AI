@@ -1,9 +1,11 @@
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.services.user_service import get_user_by_telegram_id
-from bot.services.plan_service import get_plan_by_id, move_plan_to_tomorrow
+from bot.services.plan_service import (
+    get_plan_by_id, move_plan_to_tomorrow, duplicate_plan_for_tomorrow
+)
 from bot.services.score_service import process_plan_result
 from bot.keyboards.plan_keys import back_to_home_keyboard
 
@@ -23,6 +25,12 @@ async def done_handler(callback: CallbackQuery, session: AsyncSession):
 
     score = await process_plan_result(session, user, plan, is_done=True)
 
+    # "Ertaga ham" tugmasi
+    continue_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔁 Ertaga ham davom ettirish", callback_data=f"continue_{plan_id}")],
+        [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home")]
+    ])
+
     await callback.message.edit_text(
         f"🎉 <b>Barakallo!</b>\n\n"
         f"✅ <b>{plan.title}</b> bajarildi!\n\n"
@@ -30,7 +38,7 @@ async def done_handler(callback: CallbackQuery, session: AsyncSession):
         f"🏆 Umumiy ball: <b>{user.total_score}</b>\n"
         f"🔥 Streak: <b>{user.streak} kun</b>",
         parse_mode="HTML",
-        reply_markup=back_to_home_keyboard()
+        reply_markup=continue_keyboard
     )
     await callback.answer("✅ +ball qo'shildi!")
 
@@ -63,14 +71,12 @@ async def failed_handler(callback: CallbackQuery, session: AsyncSession):
 async def tomorrow_handler(callback: CallbackQuery, session: AsyncSession):
     """Rejani ertaga ko'chirish"""
     plan_id = int(callback.data.split("_")[1])
-
     plan = await get_plan_by_id(session, plan_id)
 
     if not plan:
         await callback.answer("Reja topilmadi!", show_alert=True)
         return
 
-    # Keyingi kunga ko'chirish
     new_plan = await move_plan_to_tomorrow(session, plan)
 
     await callback.message.edit_text(
@@ -82,3 +88,27 @@ async def tomorrow_handler(callback: CallbackQuery, session: AsyncSession):
         reply_markup=back_to_home_keyboard()
     )
     await callback.answer("Ertaga ko'chirildi! 📅")
+
+
+@router.callback_query(F.data.startswith("continue_"))
+async def continue_handler(callback: CallbackQuery, session: AsyncSession):
+    """Rejani ertaga ham davom ettirish"""
+    plan_id = int(callback.data.split("_")[1])
+    plan = await get_plan_by_id(session, plan_id)
+
+    if not plan:
+        await callback.answer("Reja topilmadi!", show_alert=True)
+        return
+
+    new_plan = await duplicate_plan_for_tomorrow(session, plan)
+
+    await callback.message.edit_text(
+        f"🔁 <b>A'lo!</b>\n\n"
+        f"📌 <b>{plan.title}</b> ertaga ham davom etadi!\n\n"
+        f"📅 Ertaga: {new_plan.plan_date.strftime('%d.%m.%Y')}\n"
+        f"{f'🕐 {new_plan.scheduled_time}' if new_plan.scheduled_time else '🕐 Vaqtsiz'}\n\n"
+        f"Ertaga ham eslataman! 🔥",
+        parse_mode="HTML",
+        reply_markup=back_to_home_keyboard()
+    )
+    await callback.answer("Ertaga ham qo'shildi! 🔁")

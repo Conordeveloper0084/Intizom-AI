@@ -1,5 +1,6 @@
 from dotenv import load_dotenv
 import os
+import pytz
 
 load_dotenv()
 
@@ -16,11 +17,18 @@ DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{D
 
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 
-# Ball tizimi
-SCORE_DONE = 5        # Bajarganda
-SCORE_FAILED = -3     # Bajarmaganida
-STREAK_BONUS = 2      # Har streak kuni uchun bonus
+# O'zbekiston vaqti
+TIMEZONE = pytz.timezone("Asia/Tashkent")
 
-# Kunlik summary vaqti
+# Ball tizimi
+SCORE_DONE = 5
+SCORE_FAILED = -3
+STREAK_BONUS = 2
+
+# Kunlik summary vaqti (Tashkent vaqti)
 SUMMARY_HOUR = 21
 SUMMARY_MINUTE = 0
+
+# Pending check vaqti (Tashkent vaqti)
+PENDING_CHECK_HOUR = 23
+PENDING_CHECK_MINUTE = 0
