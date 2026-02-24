@@ -49,29 +49,104 @@ async def extract_plans_from_text(text: str) -> list[dict]:
 
         logger.info(f"📝 GPT ga yuborilmoqda: '{text}' | Tashkent: {current_time}")
 
-        system_prompt = """Sen reja yordamchisisiz. Faqat o'zbek tilida javob ber."""
+        system_prompt = """Sen professional reja tahlilchi va tarjimonsiz.
 
-        user_prompt = f"""Hozir: {current_time} (Tashkent)
-Bugun: {current_date}
+ASOSIY VAZIFA: Foydalanuvchi nima demoqchi bo'lsa - aniq tushunib, o'zbek tilida reja chiqarish.
+
+QOIDALAR:
+1. title FAQAT O'ZBEK TILIDA lotin harflarida
+2. Har bir so'zni diqqat bilan tahlil qil
+3. Sonlar va miqdorlar muhim — ularni saqla
+4. Faqat JSON formatda javob ber"""
+
+        user_prompt = f"""HOZIRGI VAQT VA SANA:
+Tashkent vaqti: {current_time}
+Bugungi sana: {current_date}
 Ertaga: {tomorrow_date}
 
-Matndan rejalarni topib O'ZBEK TILIDA JSON qaytar.
+FOYDALANUVCHI MATNI:
+"{text}"
 
-VAQT:
-- "17:00 da" → "17:00"
-- "10 minutdan keyin" → "{(now + timedelta(minutes=10)).strftime("%H:%M")}"
-- "yarim soatdan so'ng" → "{(now + timedelta(minutes=30)).strftime("%H:%M")}"
-- Vaqt yo'q → null
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-BUGUN/ERTAGA:
-- "ertaga", "sabah" → for_tomorrow: true
-- Boshqa → for_tomorrow: false
+TAHLIL QOIDALARI:
 
-JSON:
+1. SONLAR VA MIQDORLAR:
+   Agar son aytilgan bo'lsa — title ga qo'sh!
+   
+   MISOLLAR:
+   ✅ "10 ta turnik" → "Turnikda 10 ta tortish"
+   ✅ "5 km yugurish" → "5 km yugurish"
+   ✅ "3 sahifa kitob" → "3 sahifa kitob o'qish"
+   ✅ "20 minutlik meditatsiya" → "20 daqiqa meditatsiya"
+   ❌ "turnik" → "Turnik mashqi" (son yo'q bo'lsa umumiy)
+
+2. VAQT HISOBLASH:
+   Aniq soat:
+   - "17:00 da" → "17:00"
+   - "soat 9 da" → "09:00"
+   - "14:30 da" → "14:30"
+   
+   Nisbiy vaqt (hozirgi vaqt: {current_time}):
+   - "10 minutdan keyin" → "{(now + timedelta(minutes=10)).strftime("%H:%M")}"
+   - "yarim soatdan so'ng" → "{(now + timedelta(minutes=30)).strftime("%H:%M")}"
+   - "1 soatdan keyin" → "{(now + timedelta(hours=1)).strftime("%H:%M")}"
+   - "2 soatdan so'ng" → "{(now + timedelta(hours=2)).strftime("%H:%M")}"
+   
+   Vaqt yo'q:
+   - "kechqurun" → null
+   - "ertadan" → null
+
+3. BUGUN vs ERTAGA:
+   - "ertaga", "sabah", "tomorrow" → for_tomorrow: true
+   - Boshqa holatlarda → for_tomorrow: false
+
+4. MAVZU ANIQLASH:
+   SPORT va MASHQ:
+   - "turnik", "турник", "pull-up" → "Turnikda tortish"
+   - "yugurish", "koşmak", "running" → "Yugurish"
+   - "sport", "mashq" → "Sport mashg'uloti"
+   - "fitnes", "gym" → "Fitnes mashg'uloti"
+   
+   O'QUV:
+   - "dars", "dars tayyorlash" → "Darsga tayyorgarlik"
+   - "AI fanidan", "matematikadan" → "[Fan nomi] darsi"
+   - "imtihon", "exam" → "Imtihonga tayyorgarlik"
+   
+   KUNDALIK ISH:
+   - "uyg'onish", "turish" → "Uyg'onish"
+   - "nonushta", "breakfast" → "Nonushta"
+   - "uxlash", "sleep" → "Uxlash"
+
+5. TARJIMA (agar boshqa tilda bo'lsa):
+   Turkcha → O'zbekcha:
+   - "kalkacağım" → "Uyg'onish"
+   - "spor yapacağım" → "Sport qilish"
+   - "kitap okuyacağım" → "Kitob o'qish"
+   
+   Ruscha → O'zbekcha:
+   - "проснуться" → "Uyg'onish"
+   - "заниматься спортом" → "Sport qilish"
+   - "читать книгу" → "Kitob o'qish"
+   
+   Inglizcha → O'zbekcha:
+   - "wake up" → "Uyg'onish"
+   - "workout" → "Sport mashg'uloti"
+   - "read a book" → "Kitob o'qish"
+
+6. SCORE BERISH:
+   - Oddiy (suv ichish, yurish): 3
+   - O'rtacha (kitob, sport, dars): 5
+   - Qiyin (proyekt, katta ish): 8
+   - Juda qiyin (erta turish, sovuq dush): 6
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+JAVOB FORMATI (faqat JSON):
 {{
   "plans": [
     {{
-      "title": "O'zbek tilida (Erta turish)",
+      "title": "O'ZBEK TILIDA aniq sarlavha (miqdor bilan agar bor bo'lsa)",
       "description": null,
       "scheduled_time": "HH:MM yoki null",
       "score_value": 5,
@@ -80,8 +155,13 @@ JSON:
   ]
 }}
 
-Matn: "{text}"
-"""
+ESLATMA: 
+- title doim o'zbek tilida lotin harflarida
+- Sonlar va miqdorlar saqlansin
+- Aniq va tushunarli bo'lsin
+- Agar bir nechta reja bo'lsa — hammasini ajrat
+
+FAQAT JSON QAYTAR, BOSHQA HECH NARSA YOZMA!"""
 
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
@@ -89,12 +169,13 @@ Matn: "{text}"
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.1,
+            temperature=0.05,  # Pastroq — aniqroq javob
         )
 
         content = response.choices[0].message.content.strip()
-        logger.info(f"✅ GPT: {content[:200]}")
+        logger.info(f"✅ GPT: {content[:300]}")
 
+        # JSON tozalash
         if "```" in content:
             parts = content.split("```")
             if len(parts) >= 2:
@@ -111,23 +192,33 @@ Matn: "{text}"
         data = json.loads(content)
         plans = data.get("plans", [])
         
-        # Kirill → O'zbek
+        # Kirill harflar → O'zbek
         for plan in plans:
             title = plan.get("title", "")
+            # Kirill tekshirish
             if any(ord(c) >= 0x0400 and ord(c) <= 0x04FF for c in title):
+                logger.warning(f"⚠️ Kirill topildi: '{title}' - tarjima qilamiz")
                 tr_resp = await client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role": "system", "content": "Tarjimon. O'zbek tilida yoz."},
-                        {"role": "user", "content": f"O'zbekchaga: {title}"}
+                        {"role": "system", "content": "Sen tarjimon. FAQAT o'zbek tilida lotin harflarida javob ber."},
+                        {"role": "user", "content": f"Bu matnni o'zbek tiliga (lotin harflarida) tarjima qil. Faqat tarjimani yoz, boshqa hech narsa: '{title}'"}
                     ],
-                    temperature=0.1,
+                    temperature=0.05,
                 )
-                plan["title"] = tr_resp.choices[0].message.content.strip()
+                uzbek_title = tr_resp.choices[0].message.content.strip()
+                # Kirill qaytgan bo'lsa — fallback
+                if any(ord(c) >= 0x0400 and ord(c) <= 0x04FF for c in uzbek_title):
+                    uzbek_title = "Reja"
+                plan["title"] = uzbek_title
+                logger.info(f"✅ Tarjima: '{title}' → '{uzbek_title}'")
 
-        logger.info(f"✅ Final: {plans}")
+        logger.info(f"✅ Final rejalar: {plans}")
         return plans
 
-    except Exception as e:
-        logger.error(f"❌ GPT xato: {e}")
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ JSON parse xatosi: {e}")
         return []
+    except Exception as e:
+        logger.error(f"❌ GPT xatosi: {type(e).__name__}: {str(e)}")
+        raise e
