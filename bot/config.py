@@ -26,8 +26,8 @@ SCORE_FAILED = -3
 STREAK_BONUS = 2
 
 # Kunlik summary vaqti (Tashkent vaqti)
-SUMMARY_HOUR = 21
-SUMMARY_MINUTE = 0
+SUMMARY_HOUR = 23
+SUMMARY_MINUTE = 59
 
 # Pending check vaqti (Tashkent vaqti)
 PENDING_CHECK_HOUR = 23
