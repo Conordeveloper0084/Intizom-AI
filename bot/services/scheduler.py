@@ -40,14 +40,16 @@ async def send_plan_notifications(bot):
                     parse_mode="HTML",
                     reply_markup=done_failed_keyboard(plan.id)
                 )
-                plan.notified_at = datetime.now(TIMEZONE)
+                # Database timezone-naive datetime kutadi
+                plan.notified_at = datetime.now(TIMEZONE).replace(tzinfo=None)
                 await session.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                await session.rollback()
+                print(f"Notification error: {e}")
 
 
 async def send_daily_summary(bot):
-    """Har kuni 21:00 da kunlik hisobot (Tashkent vaqti)"""
+    """Har kuni 23:59 da kunlik hisobot (Tashkent vaqti)"""
     async with AsyncSessionLocal() as session:
         today = datetime.now(TIMEZONE).date()
         
@@ -79,7 +81,11 @@ async def send_daily_summary(bot):
                 user.streak += 1
             elif failed and not done:
                 user.streak = 0
-            await session.commit()
+            
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
 
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -100,8 +106,8 @@ async def send_daily_summary(bot):
                     parse_mode="HTML",
                     reply_markup=keyboard
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Summary error: {e}")
 
 
 async def check_pending_plans(bot):
@@ -150,8 +156,8 @@ async def check_pending_plans(bot):
                     parse_mode="HTML",
                     reply_markup=keyboard
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Pending check error: {e}")
 
 
 def start_scheduler(bot):
@@ -163,7 +169,7 @@ def start_scheduler(bot):
         id="plan_notifications"
     )
     
-    # 21:00 (Tashkent) — kunlik summary
+    # 23:59 (Tashkent) — kunlik summary
     scheduler.add_job(
         send_daily_summary,
         trigger=CronTrigger(hour=SUMMARY_HOUR, minute=SUMMARY_MINUTE, timezone=str(TIMEZONE)),
